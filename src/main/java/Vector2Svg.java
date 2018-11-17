@@ -37,204 +37,196 @@ import javax.xml.transform.stream.StreamResult;
 
 public class Vector2Svg {
 
-  public static void main(String[] args) {
-    if (args == null || args.length == 0 || args[0].equals("--help")) {
-      printUsage();
-      return;
-    }
-    for (String path : args) {
-      Vector2Svg converter = new Vector2Svg(new File(path));
-      if (!converter.createSvg()) {
-        System.out.println("Error creating SVG from " + path);
-      }
-    }
-  }
-
-  private static void printUsage() {
-    File jarFile =
-        new File(Vector2Svg.class.getProtectionDomain().getCodeSource().getLocation().getPath());
-    System.out.println("Convert Android VectorDrawable XML resource file to SVG");
-    System.out.println();
-    System.out.println(String.format("Usage: java -jar %s [FILE]...", jarFile.getName()));
-  }
-
-  private final File source;
-  private final File destination;
-
-  public Vector2Svg(File source) {
-    this(source, new File(source.getParent(), source.getName().replaceFirst("[.][^.]+$", ".svg")));
-  }
-
-  public Vector2Svg(File source, File destination) {
-    this.source = source;
-    this.destination = destination;
-  }
-
-  public boolean createSvg() {
-    try {
-      AndroidVectorDrawable drawable = getDrawable();
-      Document doc = DocumentBuilderFactory.newInstance().newDocumentBuilder().newDocument();
-      Element svg = doc.createElement("svg");
-      svg.setAttribute("viewBox", String.format("0 0 %.1f %.1f", drawable.width, drawable.height));
-      svg.setAttribute("xmlns", "http://www.w3.org/2000/svg");
-      svg.setAttribute("xmlns:xlink", "http://www.w3.org/1999/xlink");
-      for (Group group : drawable.groups) {
-        Element g = doc.createElement("g");
-        for (VectorPath path : group.paths) {
-          Element child = doc.createElement("path");
-          if (path.fillColor != null) {
-            child.setAttribute("fill", path.fillColor);
-          }
-          if (path.strokeColor != null) {
-            child.setAttribute("stroke", path.strokeColor);
-          }
-          if (path.strokeWidth != null) {
-            child.setAttribute("stroke-width", path.strokeWidth);
-          }
-          child.setAttribute("d", path.pathData);
-          g.appendChild(child);
+    public static void main(String[] args) throws Exception {
+        if (args.length != 2) {
+            printUsage();
+            return;
         }
-        svg.appendChild(g);
-      }
-      for (VectorPath path : drawable.paths) {
-        Element child = doc.createElement("path");
-        if (path.fillColor != null) {
-          child.setAttribute("fill", path.fillColor);
+
+        File input = new File(args[0]);
+        File output = new File(args[1]);
+        System.out.printf("output=" + output.getAbsolutePath());
+        if (!input.isFile()) {
+            System.err.println("Input is not a file: " + input.getAbsolutePath());
+            System.exit(1);
+        } else if (!input.getName().endsWith(".xml")) {
+            System.err.println("Input does not end with .xml: " + input.getAbsolutePath());
+            System.exit(1);
+        } else if (!output.getAbsoluteFile().getParentFile().isDirectory()) {
+            System.err.println("Output directory does not exist: " + output.getAbsolutePath());
+            System.exit(1);
+        } else if (!output.getName().endsWith(".svg")) {
+            System.err.println("Output file does not end with .svg: " + output.getAbsolutePath());
+            System.exit(1);
         }
-        if (path.strokeColor != null) {
-          child.setAttribute("stroke", path.strokeColor);
+
+        createSvg(input, output);
+    }
+
+    private static void printUsage() {
+        File jarFile =
+                new File(Vector2Svg.class.getProtectionDomain().getCodeSource().getLocation().getPath());
+        System.out.println("Convert Android VectorDrawable XML resource file to SVG");
+        System.out.println();
+        System.out.println(String.format("Usage: java -jar %s [INPUT] [OUTPUT]", jarFile.getName()));
+    }
+
+    private static void createSvg(File input, File output) throws Exception {
+        AndroidVectorDrawable drawable = getDrawable(input);
+        Document doc = DocumentBuilderFactory.newInstance().newDocumentBuilder().newDocument();
+        Element svg = doc.createElement("svg");
+        svg.setAttribute("viewBox", "0 0 " + drawable.width + " " + drawable.height);
+        svg.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+        svg.setAttribute("xmlns:xlink", "http://www.w3.org/1999/xlink");
+        for (Group group : drawable.groups) {
+            Element g = doc.createElement("g");
+            for (VectorPath path : group.paths) {
+                Element child = doc.createElement("path");
+                if (path.fillColor != null) {
+                    child.setAttribute("fill", path.fillColor);
+                }
+                if (path.strokeColor != null) {
+                    child.setAttribute("stroke", path.strokeColor);
+                }
+                if (path.strokeWidth != null) {
+                    child.setAttribute("stroke-width", path.strokeWidth);
+                }
+                child.setAttribute("d", path.pathData);
+                g.appendChild(child);
+            }
+            svg.appendChild(g);
         }
-        if (path.strokeWidth != null) {
-          child.setAttribute("stroke-width", path.strokeWidth);
+        for (VectorPath path : drawable.paths) {
+            Element child = doc.createElement("path");
+            if (path.fillColor != null) {
+                child.setAttribute("fill", path.fillColor);
+            }
+            if (path.strokeColor != null) {
+                child.setAttribute("stroke", path.strokeColor);
+            }
+            if (path.strokeWidth != null) {
+                child.setAttribute("stroke-width", path.strokeWidth);
+            }
+            child.setAttribute("d", path.pathData);
+            svg.appendChild(child);
         }
-        child.setAttribute("d", path.pathData);
-        svg.appendChild(child);
-      }
-      doc.appendChild(svg);
-      TransformerFactory transformerFactory = TransformerFactory.newInstance();
-      Transformer transformer = transformerFactory.newTransformer();
-      DOMSource source = new DOMSource(doc);
-      StreamResult result = new StreamResult(destination);
-      transformer.setOutputProperty(OutputKeys.INDENT, "yes");
-      transformer.setOutputProperty("{http://xml.apache.org/xslt}indent-amount", "2");
-      transformer.transform(source, result);
-      return true;
-    } catch (Exception e) {
-      return false;
-    }
-  }
-
-  private AndroidVectorDrawable getDrawable()
-      throws ParserConfigurationException, IOException, SAXException {
-    Document xml =
-        DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(source);
-    xml.getDocumentElement().normalize();
-    Node vector = xml.getElementsByTagName("vector").item(0);
-    NamedNodeMap attributes = vector.getAttributes();
-    NodeList children = vector.getChildNodes();
-
-    double width = 0;
-    double height = 0;
-    for (int i = 0; i < attributes.getLength(); i++) {
-      if (attributes.item(i).getNodeName().equals("android:viewportHeight")) {
-        height = Double.parseDouble(attributes.item(i).getNodeValue());
-      } else if (attributes.item(i).getNodeName().equals("android:viewportWidth")) {
-        width = Double.parseDouble(attributes.item(i).getNodeValue());
-      }
+        doc.appendChild(svg);
+        TransformerFactory transformerFactory = TransformerFactory.newInstance();
+        Transformer transformer = transformerFactory.newTransformer();
+        DOMSource source = new DOMSource(doc);
+        StreamResult result = new StreamResult(output);
+        transformer.setOutputProperty(OutputKeys.INDENT, "yes");
+        transformer.setOutputProperty("{http://xml.apache.org/xslt}indent-amount", "2");
+        transformer.transform(source, result);
     }
 
-    List<VectorPath> paths = new ArrayList<>();
-    List<Group> groups = new ArrayList<>();
+    private static AndroidVectorDrawable getDrawable(File source)
+            throws ParserConfigurationException, IOException, SAXException {
+        Document xml =
+                DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(source);
+        xml.getDocumentElement().normalize();
+        Node vector = xml.getElementsByTagName("vector").item(0);
+        NamedNodeMap attributes = vector.getAttributes();
+        NodeList children = vector.getChildNodes();
 
-    for (int i = 0; i < children.getLength(); i++) {
-      Node item = children.item(i);
-      if (item.getNodeName().equals("group")) {
-        List<VectorPath> groupPaths = new ArrayList<>();
-        for (int j = 0; j < item.getChildNodes().getLength(); j++) {
-          VectorPath path = getVectorPathFromNode(item.getChildNodes().item(j));
-          if (path != null) {
-            groupPaths.add(path);
-          }
+        int width = 0;
+        int height = 0;
+        for (int i = 0; i < attributes.getLength(); i++) {
+            if (attributes.item(i).getNodeName().equals("android:viewportHeight")) {
+                height = Integer.parseInt(attributes.item(i).getNodeValue());
+            } else if (attributes.item(i).getNodeName().equals("android:viewportWidth")) {
+                width = Integer.parseInt(attributes.item(i).getNodeValue());
+            }
         }
-        if (!groupPaths.isEmpty()) {
-          groups.add(new Group(groupPaths));
+
+        List<VectorPath> paths = new ArrayList<>();
+        List<Group> groups = new ArrayList<>();
+
+        for (int i = 0; i < children.getLength(); i++) {
+            Node item = children.item(i);
+            if (item.getNodeName().equals("group")) {
+                List<VectorPath> groupPaths = new ArrayList<>();
+                for (int j = 0; j < item.getChildNodes().getLength(); j++) {
+                    VectorPath path = getVectorPathFromNode(item.getChildNodes().item(j));
+                    if (path != null) {
+                        groupPaths.add(path);
+                    }
+                }
+                if (!groupPaths.isEmpty()) {
+                    groups.add(new Group(groupPaths));
+                }
+            } else {
+                VectorPath path = getVectorPathFromNode(item);
+                if (path != null) {
+                    paths.add(path);
+                }
+            }
         }
-      } else {
-        VectorPath path = getVectorPathFromNode(item);
-        if (path != null) {
-          paths.add(path);
+
+        return new AndroidVectorDrawable(paths, groups, width, height);
+    }
+
+    private static VectorPath getVectorPathFromNode(Node item) {
+        if (item.getNodeName().equals("path")) {
+            String pathData = null;
+            String fillColor = null;
+            String strokeColor = null;
+            String strokeWidth = null;
+            for (int j = 0; j < item.getAttributes().getLength(); j++) {
+                Node node = item.getAttributes().item(j);
+                String name = node.getNodeName();
+                String value = node.getNodeValue();
+                if (name.equals("android:pathData")) {
+                    pathData = value;
+                } else if (name.equals("android:fillColor") && value.startsWith("#")) {
+                    fillColor = value;
+                } else if (name.equals("android:strokeColor") && value.startsWith("#")) {
+                    strokeColor = value;
+                } else if (name.equals("android:strokeWidth")) {
+                    strokeWidth = value;
+                }
+            }
+            if (pathData != null) {
+                return new VectorPath(pathData, fillColor, strokeColor, strokeWidth);
+            }
         }
-      }
+        return null;
     }
 
-    return new AndroidVectorDrawable(paths, groups, width, height);
-  }
+    private static class VectorPath {
+        private String pathData;
+        private String fillColor;
+        private String strokeColor;
+        private String strokeWidth;
 
-  private VectorPath getVectorPathFromNode(Node item) {
-    if (item.getNodeName().equals("path")) {
-      String pathData = null;
-      String fillColor = null;
-      String strokeColor = null;
-      String strokeWidth = null;
-      for (int j = 0; j < item.getAttributes().getLength(); j++) {
-        Node node = item.getAttributes().item(j);
-        String name = node.getNodeName();
-        String value = node.getNodeValue();
-        if (name.equals("android:pathData")) {
-          pathData = value;
-        } else if (name.equals("android:fillColor") && value.startsWith("#")) {
-          fillColor = value;
-        } else if (name.equals("android:strokeColor") && value.startsWith("#")) {
-          strokeColor = value;
-        } else if (name.equals("android:strokeWidth")) {
-          strokeWidth = value;
-      }
-      }
-      if (pathData != null) {
-        return new VectorPath(pathData, fillColor, strokeColor, strokeWidth);
-      }
+        private VectorPath(String pathData, String fillColor, String strokeColor, String strokeWidth) {
+            this.pathData = pathData;
+            this.fillColor = fillColor;
+            this.strokeColor = strokeColor;
+            this.strokeWidth = strokeWidth;
+        }
     }
-    return null;
-  }
 
-  private class VectorPath {
+    private static class Group {
+        private final List<VectorPath> paths;
 
-    private String pathData;
-    private String fillColor;
-    private String strokeColor;
-    private String strokeWidth;
-
-    private VectorPath(String pathData, String fillColor, String strokeColor, String strokeWidth) {
-      this.pathData = pathData;
-      this.fillColor = fillColor;
-      this.strokeColor = strokeColor;
-      this.strokeWidth = strokeWidth;
+        public Group(List<VectorPath> paths) {
+            this.paths = paths;
+        }
     }
-  }
 
-  private class Group {
+    private static class AndroidVectorDrawable {
+        private final List<VectorPath> paths;
+        private final List<Group> groups;
+        private final int height;
+        private final int width;
 
-    private final List<VectorPath> paths;
-
-    public Group(List<VectorPath> paths) {
-      this.paths = paths;
+        private AndroidVectorDrawable(List<VectorPath> paths, List<Group> groups, int width, int height) {
+            this.paths = paths;
+            this.groups = groups;
+            this.height = height;
+            this.width = width;
+        }
     }
-  }
-
-  private class AndroidVectorDrawable {
-
-    private final List<VectorPath> paths;
-    private final List<Group> groups;
-    private final double height;
-    private final double width;
-
-    private AndroidVectorDrawable(List<VectorPath> paths, List<Group> groups,
-                                  double width, double height) {
-      this.paths = paths;
-      this.groups = groups;
-      this.height = height;
-      this.width = width;
-    }
-  }
 
 }
